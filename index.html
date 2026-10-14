@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Diagram Markdown Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #f3f4f6;
+            --panel-bg: #ffffff;
+            --text-main: #1f2937;
+            --border-color: #e5e7eb;
+            --canvas-dot: #d1d5db;
+        }
+
+        .dark {
+            --bg-color: #111827;
+            --panel-bg: #1f2937;
+            --text-main: #f9fafb;
+            --border-color: #374151;
+            --canvas-dot: #374151;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .panel-theme {
+            background-color: var(--panel-bg);
+            border-color: var(--border-color);
+        }
+
+        /* Canvas Pattern */
+        .canvas-bg {
+            background-color: var(--bg-color);
+            background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .node-element {
+            position: absolute;
+            cursor: grab;
+            user-select: none;
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+
+        .node-element:active {
+            cursor: grabbing;
+        }
+
+        .node-element.selected {
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.5);
+            border-color: #3b82f6;
+        }
+
+        /* Hide scrollbars but keep functionality for workspace */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        
+        .connection-line {
+            transition: stroke 0.2s;
+        }
+        .connection-line:hover {
+            stroke: #ef4444;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col font-sans">
+
+    <header class="panel-theme border-b h-14 flex items-center justify-between px-4 z-50 shadow-sm shrink-0">
+        <div class="flex items-center space-x-3">
+            <i class="fas fa-network-wired text-blue-500 text-xl"></i>
+            <h1 class="font-bold text-lg tracking-tight hidden sm:block">NetDiagram Studio</h1>
+            <span class="text-gray-300 dark:text-gray-600 hidden sm:block">|</span>
+            <div class="flex items-center space-x-1">
+                <input type="text" id="header-diagram-name" 
+                       class="text-sm font-medium bg-transparent border border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-blue-500 rounded px-2 py-1 outline-none transition-colors w-40 sm:w-56" 
+                       value="Untitled Network" 
+                       title="Click to rename diagram"
+                       onchange="app.updateDiagramName(this.value)">
+            </div>
+        </div>
+        
+        <div class="flex items-center space-x-2">
+            <button onclick="app.setTool('select')" id="tool-select" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 bg-gray-200 dark:bg-gray-700 tooltip" title="Select / Move Tool">
+                <i class="fas fa-mouse-pointer w-5 text-center"></i>
+            </button>
+            <div class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+            
+            <!-- View Controls -->
+            <button onclick="app.centerView()" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip" title="Center View to Content">
+                <i class="fas fa-compress-arrows-alt w-5 text-center"></i>
+            </button>
+            <div class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+            
+            <!-- File Controls -->
+            <input type="file" id="file-import" accept=".md" class="hidden" onchange="app.importMarkdown(event)">
+            <button onclick="document.getElementById('file-import').click()" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip" title="Open Markdown File">
+                <i class="fas fa-folder-open w-5 text-center text-yellow-600 dark:text-yellow-400"></i>
+            </button>
+            <button onclick="app.openSaveModal()" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip" title="Save / Export Markdown">
+                <i class="fas fa-save w-5 text-center text-green-600 dark:text-green-400"></i>
+            </button>
+            <button onclick="app.exportImage()" id="btn-export-image" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip" title="Export Diagram as PNG Image">
+                <i class="fas fa-image w-5 text-center text-purple-600 dark:text-purple-400"></i>
+            </button>
+            
+            <div class="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+            <!-- Theme Toggle -->
+            <button onclick="app.toggleTheme()" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 tooltip" title="Toggle Light/Dark Theme">
+                <i id="theme-icon" class="fas fa-moon w-5 text-center"></i>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+        
+        <aside class="panel-theme border-r w-64 flex flex-col z-40 shadow-sm">
+            <div class="p-3 border-b border-gray-200 dark:border-gray-700 font-semibold text-sm text-gray-500 dark:text-gray-400 uppercase">
+                Device Library
+            </div>
+            <div class="p-4 space-y-4 overflow-y-auto flex-1 no-scrollbar">
+                
+                <!-- Category: Networking -->
+                <div>
+                    <h3 class="text-xs font-bold mb-2 text-gray-400">Networking</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'router')">
+                            <i class="fas fa-arrows-alt text-blue-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Router</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'switch')">
+                            <i class="fas fa-network-wired text-green-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Switch</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'firewall')">
+                            <i class="fas fa-shield-alt text-red-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Firewall</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'access_point')">
+                            <i class="fas fa-wifi text-cyan-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Access Point</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category: Compute -->
+                <div>
+                    <h3 class="text-xs font-bold mb-2 text-gray-400">Compute / Endpoints</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'server')">
+                            <i class="fas fa-server text-purple-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Server</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'pc')">
+                            <i class="fas fa-desktop text-gray-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">PC</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'laptop')">
+                            <i class="fas fa-laptop text-gray-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Laptop</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'database')">
+                            <i class="fas fa-database text-yellow-600 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Database</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'cloud')">
+                            <i class="fas fa-cloud text-blue-400 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Cloud</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'mobile')">
+                            <i class="fas fa-mobile-alt text-pink-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Mobile</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'tablet')">
+                            <i class="fas fa-tablet-alt text-orange-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">Tablet</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'embedded')">
+                            <i class="fas fa-microchip text-emerald-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none text-center leading-tight">Embedded</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'nas')">
+                            <i class="fas fa-hdd text-amber-600 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">NAS</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category: Security / Surveillance -->
+                <div>
+                    <h3 class="text-xs font-bold mb-2 text-gray-400">Security / Surveillance</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'ip_camera')">
+                            <i class="fas fa-video text-teal-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">IP Camera</span>
+                        </div>
+                        <div class="border panel-theme p-2 rounded cursor-grab hover:shadow-md flex flex-col items-center gap-1" draggable="true" ondragstart="app.onDragStartDevice(event, 'nvr')">
+                            <i class="fas fa-hdd text-indigo-500 text-2xl pointer-events-none"></i>
+                            <span class="text-xs pointer-events-none">NVR</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-3 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 text-center">
+                Drag to Canvas
+            </div>
+        </aside>
+
+        <main class="flex-1 relative overflow-auto no-scrollbar" id="canvas-workspace" 
+              ondragover="event.preventDefault()" 
+              ondrop="app.onDropDevice(event)"
+              onclick="app.onWorkspaceClick(event)"
+              oncontextmenu="app.onWorkspaceContextMenu(event)">
+            
+            <!-- Infinite Canvas Container -->
+            <div id="view-canvas" class="canvas-bg absolute top-0 left-0" style="width: 3000px; height: 3000px; transform-origin: 0 0;">
+                
+                <div id="canvas-inner" class="relative w-full h-full">
+                    <!-- SVG Layer for Links / Edges -->
+                    <svg id="svg-connections" class="absolute inset-0 w-full h-full pointer-events-none z-0">
+                        <!-- Populated by JS -->
+                    </svg>
+
+                    <!-- SVG Layer for Rubberband Connection (100% Non-blocking) -->
+                    <svg id="svg-rubberband" class="absolute inset-0 w-full h-full z-20 pointer-events-none" style="overflow: visible;">
+                        <line id="rubberband-line" class="pointer-events-none hidden" stroke="#f59e0b" stroke-width="3" stroke-dasharray="6,4" />
+                    </svg>
+
+                    <!-- HTML Nodes Layer -->
+                    <div id="html-nodes" class="absolute inset-0 z-10 pointer-events-none">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- HTML Labels Layer -->
+                    <div id="html-labels" class="absolute inset-0 z-10 pointer-events-none">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+            </div>
+        </main>
+
+        <aside class="panel-theme border-l w-72 flex flex-col z-40 shadow-sm" id="properties-panel">
+            <div class="p-3 border-b border-gray-200 dark:border-gray-700 font-semibold text-sm text-gray-500 dark:text-gray-400 uppercase flex justify-between items-center">
+                <span>Properties</span>
+                <span id="prop-type-badge" class="px-2 py-0.5 rounded text-xs bg-gray-200 text-gray-700 hidden"></span>
+            </div>
+            <div class="p-4 flex-1 overflow-y-auto no-scrollbar" id="prop-content">
+                <div class="text-sm text-gray-400 text-center mt-10" id="prop-empty-state">
+                    Select a node or link to edit its properties.
+                </div>
+                
+                <!-- Node Form (Hidden by default) -->
+                <form id="prop-node-form" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                        <input type="text" id="prop-node-name" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" onchange="app.updateSelectedNode()">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">IP Address</label>
+                        <input type="text" id="prop-node-ip" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. 192.168.1.1" onchange="app.updateSelectedNode()">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Subnet / Zone</label>
+                        <input type="text" id="prop-node-zone" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. LAN, DMZ" onchange="app.updateSelectedNode()">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Comment / Notes</label>
+                        <textarea id="prop-node-comment" rows="3" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none resize-none" placeholder="Add comments or specifications..." oninput="app.updateSelectedNode()"></textarea>
+                    </div>
+                    
+                    <div class="pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
+                        <button type="button" onclick="app.deleteSelected()" class="w-full p-2 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded text-sm font-medium transition-colors">
+                            <i class="fas fa-trash-alt mr-2"></i>Delete Device
+                        </button>
+                    </div>
+                </form>
+
+                 <!-- Link Form (Hidden by default) -->
+                 <form id="prop-link-form" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Connection Name / Label</label>
+                        <input type="text" id="prop-link-name" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Trunk 10G, Main Uplink" oninput="app.updateSelectedLink()">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Connection Type</label>
+                        <select id="prop-link-type" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" onchange="app.updateSelectedLink()">
+                            <option value="Ethernet">Ethernet / UTP</option>
+                            <option value="Fiber">Fiber Optic</option>
+                            <option value="Wireless">Wireless / Wi-Fi</option>
+                            <option value="VPN">VPN Tunnel</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Port Info (Source -> Target)</label>
+                        <input type="text" id="prop-link-ports" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Gi0/1 -> Fa0/24" onchange="app.updateSelectedLink()">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Comment / Notes</label>
+                        <textarea id="prop-link-comment" rows="3" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none resize-none" placeholder="Add link details, VLANs, bandwidth..." oninput="app.updateSelectedLink()"></textarea>
+                    </div>
+                    
+                    <div class="pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
+                        <button type="button" onclick="app.deleteSelected()" class="w-full p-2 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded text-sm font-medium transition-colors">
+                            <i class="fas fa-trash-alt mr-2"></i>Delete Connection
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Label Form (Hidden by default) -->
+                <form id="prop-label-form" class="hidden space-y-4" onsubmit="event.preventDefault()">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Label Text</label>
+                        <textarea id="prop-label-text" rows="3" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none resize-none" placeholder="Enter label text..." oninput="app.updateSelectedLabel()"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Font Size</label>
+                        <select id="prop-label-size" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" onchange="app.updateSelectedLabel()">
+                            <option value="sm">Small</option>
+                            <option value="md">Medium</option>
+                            <option value="lg">Large</option>
+                            <option value="xl">Extra Large</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Color Theme</label>
+                        <select id="prop-label-color" class="w-full text-sm p-2 border rounded panel-theme focus:ring-2 focus:ring-blue-500 outline-none" onchange="app.updateSelectedLabel()">
+                            <option value="default">Default (Theme Text)</option>
+                            <option value="blue">Blue</option>
+                            <option value="green">Green</option>
+                            <option value="red">Red</option>
+                            <option value="yellow">Yellow / Amber</option>
+                            <option value="purple">Purple</option>
+                            <option value="gray">Gray / Muted</option>
+                        </select>
+                    </div>
+                    
+                    <div class="pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
+                        <button type="button" onclick="app.deleteSelected()" class="w-full p-2 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded text-sm font-medium transition-colors">
+                            <i class="fas fa-trash-alt mr-2"></i>Delete Label
+                        </button>
+                    </div>
+                </form>
+
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Save / Export Modal -->
+    <div id="save-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="panel-theme border rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div class="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
+                <h2 class="text-lg font-bold flex items-center gap-2">
+                    <i class="fas fa-file-export text-green-500"></i>
+                    <span>Save Network Diagram</span>
+                </h2>
+                <button onclick="app.closeSaveModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Diagram Name / Filename</label>
+                    <div class="flex items-center">
+                        <input type="text" id="save-filename-input" 
+                               class="w-full text-sm p-2.5 border rounded-l-lg panel-theme focus:ring-2 focus:ring-blue-500 outline-none" 
+                               placeholder="Enter filename..."
+                               onkeydown="if(event.key === 'Enter') app.confirmSaveMarkdown()">
+                        <span class="bg-gray-100 dark:bg-gray-800 border border-l-0 border-gray-300 dark:border-gray-600 px-3 py-2.5 text-sm text-gray-500 rounded-r-lg font-mono">.md</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description / Notes (Optional)</label>
+                    <textarea id="save-description-input" rows="3" 
+                              class="w-full text-sm p-2.5 border rounded-lg panel-theme focus:ring-2 focus:ring-blue-500 outline-none resize-none" 
+                              placeholder="Brief description of this network architecture for AI context..."></textarea>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+                <button type="button" onclick="app.closeSaveModal()" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                    Cancel
+                </button>
+                <button type="button" onclick="app.confirmSaveImage()" class="px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors flex items-center gap-2 shadow-sm">
+                    <i class="fas fa-image"></i>
+                    <span>Download .png</span>
+                </button>
+                <button type="button" onclick="app.confirmSaveMarkdown()" class="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm">
+                    <i class="fas fa-download"></i>
+                    <span>Download .md</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast-notification" class="fixed bottom-4 right-4 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium transform translate-y-16 opacity-0 transition-all duration-300 z-50 flex items-center gap-2 pointer-events-none">
+        <i id="toast-icon" class="fas fa-info-circle text-blue-400 dark:text-blue-600"></i>
+        <span id="toast-message">Notification</span>
+    </div>
+
+    <script>
+        class NetworkDiagramApp {
+            constructor() {
+                // Application State
+                this.state = {
+                    metadata: {
+                        diagram_name: "Untitled Network",
+                        version: "1.0.0",
+                        description: ""
+                    },
+                    nodes: [], // { id, type, name, ip, zone, x, y }
+                    links: [], // { id, sourceId, targetId, type, ports }
+                    labels: [] // { id, text, x, y, fontSize, color }
+                };
+
+                // UI & Interaction State
+                this.activeTool = 'select'; // 'select' 
+                this.selectedId = null;
+                this.selectedType = null; // 'node', 'link', or 'label'
+                
+                // Dragging Logic
+                this.draggingNodeId = null;
+                this.draggingLabelId = null;
+                this.dragStartMouse = { x: 0, y: 0 };
+                this.nodeStartPos = { x: 0, y: 0 };
+                
+                // Connection Logic
+                this.connectSourceId = null;
+
+                // Icons mapping
+                this.iconMap = {
+                    'router': { icon: 'fa-arrows-alt', color: 'text-blue-500' },
+                    'switch': { icon: 'fa-network-wired', color: 'text-green-500' },
+                    'firewall': { icon: 'fa-shield-alt', color: 'text-red-500' },
+                    'access_point': { icon: 'fa-wifi', color: 'text-cyan-500' },
+                    'server': { icon: 'fa-server', color: 'text-purple-500' },
+                    'pc': { icon: 'fa-desktop', color: 'text-gray-500' },
+                    'laptop': { icon: 'fa-laptop', color: 'text-gray-500' },
+                    'database': { icon: 'fa-database', color: 'text-yellow-600' },
+                    'cloud': { icon: 'fa-cloud', color: 'text-blue-400' },
+                    'mobile': { icon: 'fa-mobile-alt', color: 'text-pink-500' },
+                    'tablet': { icon: 'fa-tablet-alt', color: 'text-orange-500' },
+                    'embedded': { icon: 'fa-microchip', color: 'text-emerald-500' },
+                    'nas': { icon: 'fa-hdd', color: 'text-amber-600' },
+                    'ip_camera': { icon: 'fa-video', color: 'text-teal-500' },
+                    'nvr': { icon: 'fa-hdd', color: 'text-indigo-500' }
+                };
+            }
+
+            // --- Initialization ---
+            init() {
+                this.centerViewToCenter(); // Init view to canvas center
+                this.setupGlobalEventListeners();
+                this.renderAll();
+                
+                // Initial Dark/Light match OS
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    document.documentElement.classList.add('dark');
+                    document.getElementById('theme-icon').classList.replace('fa-moon', 'fa-sun');
+                }
+            }
+
+            setupGlobalEventListeners() {
+                // Handle global mouse move for node dragging and rubberband line
+                window.addEventListener('mousemove', (e) => this.onGlobalMouseMove(e));
+                
+                // Handle global mouse up to stop dragging
+                window.addEventListener('mouseup', (e) => this.onGlobalMouseUp(e));
+            }
+
+            // --- Theme Management ---
+            toggleTheme() {
+                const html = document.documentElement;
+                const icon = document.getElementById('theme-icon');
+                if (html.classList.contains('dark')) {
+                    html.classList.remove('dark');
+                    icon.classList.replace('fa-sun', 'fa-moon');
+                } else {
+                    html.classList.add('dark');
+                    icon.classList.replace('fa-moon', 'fa-sun');
+                }
+            }
+
+            // --- Viewport Management ---
+            centerViewToCenter() {
+                const workspace = document.getElementById('canvas-workspace');
+                // Target middle of 3000x3000 canvas
+                const targetX = 1500 - (workspace.clientWidth / 2);
+                const targetY = 1500 - (workspace.clientHeight / 2);
+                workspace.scrollTo(targetX, targetY);
+            }
+
+            centerView() {
+                if (this.state.nodes.length === 0 && this.state.labels.length === 0) {
+                    this.centerViewToCenter();
+                    return;
+                }
+
+                // Calculate bounding box of all nodes and labels
+                let minX = Infinity, minY = Infinity;
+                let maxX = -Infinity, maxY = -Infinity;
+
+                this.state.nodes.forEach(n => {
+                    if (n.x < minX) minX = n.x;
+                    if (n.y < minY) minY = n.y;
+                    if (n.x > maxX) maxX = n.x;
+                    if (n.y > maxY) maxY = n.y;
+                });
+
+                this.state.labels.forEach(l => {
+                    if (l.x < minX) minX = l.x;
+                    if (l.y < minY) minY = l.y;
+                    if (l.x > maxX) maxX = l.x;
+                    if (l.y > maxY) maxY = l.y;
+                });
+
+                // Assuming average node width/height is ~100px, add some padding
+                const nodeSize = 100;
+                const centerX = minX + ((maxX - minX) / 2) + (nodeSize / 2);
+                const centerY = minY + ((maxY - minY) / 2) + (nodeSize / 2);
+
+                const workspace = document.getElementById('canvas-workspace');
+                
+                // Smooth scroll to the calculated center
+                workspace.scrollTo({
+                    left: centerX - (workspace.clientWidth / 2),
+                    top: centerY - (workspace.clientHeight / 2),
+                    behavior: 'smooth'
+                });
+            }
+
+            // --- Toolbar Tools ---
+            setTool(tool) {
+                this.activeTool = tool;
+                
+                // Update UI Buttons
+                document.getElementById('tool-select').classList.remove('bg-gray-200', 'dark:bg-gray-700');
+                
+                if (tool === 'select') {
+                    document.getElementById('tool-select').classList.add('bg-gray-200', 'dark:bg-gray-700');
+                    this.cancelConnection();
+                }
+            }
+
+            // --- Drag & Drop from Sidebar ---
+            onDragStartDevice(event, type) {
+                event.dataTransfer.setData('device-type', type);
+                this.setTool('select'); // Ensure select tool is active
+            }
+
+            onDropDevice(event) {
+                event.preventDefault();
+                const type = event.dataTransfer.getData('device-type');
+                if (!type) return;
+
+                // Calculate drop coordinates relative to the canvas
+                const workspace = document.getElementById('canvas-workspace');
+                const canvasRect = document.getElementById('view-canvas').getBoundingClientRect();
+                
+                // event.clientX/Y is screen pos. Subtract canvas screen offset to get absolute canvas X/Y
+                const dropX = event.clientX - canvasRect.left;
+                const dropY = event.clientY - canvasRect.top;
+
+                // Center the node on the mouse
+                const nodeWidthOffset = 40; 
+                const nodeHeightOffset = 40; 
+
+                const newNode = {
+                    id: 'node_' + Math.random().toString(36).substr(2, 9),
+                    type: type,
+                    name: type.charAt(0).toUpperCase() + type.slice(1) + '_' + (this.state.nodes.length + 1),
+                    ip: '',
+                    zone: '',
+                    comment: '',
+                    x: dropX - nodeWidthOffset,
+                    y: dropY - nodeHeightOffset
+                };
+
+                this.state.nodes.push(newNode);
+                this.selectNode(newNode.id);
+                this.renderAll();
+            }
+
+            // --- Workspace & Node Interactions ---
+            onWorkspaceClick(event) {
+                // If clicking on a node, label, or connection line, their own handlers will stopPropagation
+                // So any click reaching here (unless inside an active input) is a background canvas click
+                if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+
+                this.selectedId = null;
+                this.selectedType = null;
+                
+                if (this.connectSourceId) {
+                    this.cancelConnection();
+                }
+                
+                this.updatePropertiesPanel();
+                this.renderNodes(); // Remove selected highlighting
+                this.renderLinks();
+                this.renderLabels();
+            }
+
+            onWorkspaceContextMenu(event) {
+                event.preventDefault(); // Prevent default browser menu anywhere on canvas
+                
+                // If we are currently connecting, right-clicking on empty space cancels it
+                if (this.connectSourceId) {
+                    this.cancelConnection();
+                    return;
+                }
+
+                // Right-clicking on empty canvas adds a new Text Label at cursor position
+                const canvasRect = document.getElementById('view-canvas').getBoundingClientRect();
+                const dropX = event.clientX - canvasRect.left;
+                const dropY = event.clientY - canvasRect.top;
+
+                const newLabel = {
+                    id: 'label_' + Math.random().toString(36).substr(2, 9),
+                    text: 'New Label',
+                    x: Math.max(0, dropX - 40),
+                    y: Math.max(0, dropY - 15),
+                    fontSize: 'md',
+                    color: 'default'
+                };
+
+                this.state.labels.push(newLabel);
+                this.selectLabel(newLabel.id);
+                this.renderLabels();
+
+                // Automatically focus and select the text input in the properties panel for quick editing
+                setTimeout(() => {
+                    const textInput = document.getElementById('prop-label-text');
+                    if (textInput) {
+                        textInput.focus();
+                        textInput.select();
+                    }
+                }, 50);
+            }
+
+            onNodeMouseDown(event, id) {
+                event.stopPropagation(); // Prevent canvas click
+
+                // Ignore right-click (button 2) for dragging
+                if (event.button === 2) return;
+
+                // If currently connecting, let the click handler finish the connection instead of dragging
+                if (this.connectSourceId) return;
+
+                this.selectNode(id);
+                this.draggingNodeId = id;
+                
+                const node = this.state.nodes.find(n => n.id === id);
+                this.dragStartMouse = { x: event.clientX, y: event.clientY };
+                this.nodeStartPos = { x: node.x, y: node.y };
+            }
+
+            onLabelMouseDown(event, id) {
+                event.stopPropagation();
+                if (event.button === 2) return; // Ignore right click for dragging
+                if (this.connectSourceId) return;
+
+                this.selectLabel(id);
+                this.draggingLabelId = id;
+
+                const label = this.state.labels.find(l => l.id === id);
+                this.dragStartMouse = { x: event.clientX, y: event.clientY };
+                this.nodeStartPos = { x: label.x, y: label.y };
+            }
+
+            onLabelClick(event, id) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (this.connectSourceId) {
+                    this.cancelConnection();
+                    return;
+                }
+                this.selectLabel(id);
+            }
+
+            onLabelContextMenu(event, id) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (this.connectSourceId) {
+                    this.cancelConnection();
+                    return;
+                }
+                this.selectLabel(id);
+                setTimeout(() => {
+                    const textInput = document.getElementById('prop-label-text');
+                    if (textInput) {
+                        textInput.focus();
+                        textInput.select();
+                    }
+                }, 50);
+            }
+
+            onGlobalMouseMove(event) {
+                // 1. Handle Node Dragging
+                if (this.draggingNodeId) {
+                    const dx = event.clientX - this.dragStartMouse.x;
+                    const dy = event.clientY - this.dragStartMouse.y;
+                    
+                    const node = this.state.nodes.find(n => n.id === this.draggingNodeId);
+                    if (node) {
+                        node.x = this.nodeStartPos.x + dx;
+                        node.y = this.nodeStartPos.y + dy;
+                        this.renderNodes(); // Update fast
+                        this.renderLinks(); // Update fast
+                    }
+                }
+
+                // 1.5 Handle Label Dragging
+                if (this.draggingLabelId) {
+                    const dx = event.clientX - this.dragStartMouse.x;
+                    const dy = event.clientY - this.dragStartMouse.y;
+
+                    const label = this.state.labels.find(l => l.id === this.draggingLabelId);
+                    if (label) {
+                        label.x = this.nodeStartPos.x + dx;
+                        label.y = this.nodeStartPos.y + dy;
+                        this.renderLabels();
+                    }
+                }
+                
+                // 2. Handle Rubberband Line updating (Connection mode)
+                if (this.connectSourceId) {
+                    const sourceNode = this.state.nodes.find(n => n.id === this.connectSourceId);
+                    if (sourceNode) {
+                        const canvasRect = document.getElementById('view-canvas').getBoundingClientRect();
+                        // Get exact mouse position relative to canvas (0,0 of 3000x3000)
+                        const mouseX = event.clientX - canvasRect.left;
+                        const mouseY = event.clientY - canvasRect.top;
+                        
+                        this.updateRubberband(sourceNode, mouseX, mouseY);
+                    }
+                }
+            }
+
+            onGlobalMouseUp(event) {
+                if (this.draggingNodeId) {
+                    this.draggingNodeId = null;
+                }
+                if (this.draggingLabelId) {
+                    this.draggingLabelId = null;
+                }
+            }
+
+            // --- Connection Logic ---
+            onNodeClick(event, id) {
+                event.preventDefault();
+                event.stopPropagation(); // Keep clicks strictly on the node
+                
+                // 1. If currently in connection mode (rubberband active)
+                if (this.connectSourceId) {
+                    if (this.connectSourceId !== id) {
+                        this.completeConnection(id); // Target different node -> Connect!
+                    } else {
+                        this.cancelConnection(); // Clicked self -> Cancel
+                    }
+                    return;
+                }
+                
+                // 2. Normal select mode
+                this.selectNode(id);
+            }
+
+            onNodeContextMenu(event, id) {
+                event.preventDefault(); 
+                event.stopPropagation();
+                
+                // If already connecting
+                if (this.connectSourceId) {
+                    if (this.connectSourceId === id) {
+                        this.cancelConnection(); // Right-click self again to cancel
+                    } else {
+                        this.completeConnection(id); // Right-click another node to connect
+                    }
+                    return;
+                }
+
+                // Start connection mode from this node
+                this.startConnection(id);
+                
+                // Immediately update line to current mouse position (gives instant visual feedback)
+                const canvasRect = document.getElementById('view-canvas').getBoundingClientRect();
+                const mouseX = event.clientX - canvasRect.left;
+                const mouseY = event.clientY - canvasRect.top;
+                const sourceNode = this.state.nodes.find(n => n.id === id);
+                this.updateRubberband(sourceNode, mouseX, mouseY);
+            }
+
+            startConnection(sourceId) {
+                this.connectSourceId = sourceId;
+                this.selectedId = sourceId; // Highlight source
+                this.selectedType = 'node';
+                this.updatePropertiesPanel();
+                this.renderNodes(); // Applies animation/highlight to source
+                
+                // Show line immediately
+                const line = document.getElementById('rubberband-line');
+                line.style.display = 'block';
+                line.classList.remove('hidden');
+            }
+
+            updateRubberband(sourceNode, targetX, targetY) {
+                const line = document.getElementById('rubberband-line');
+                // Assuming node center is approx +40,+40 from top-left (based on w-20/h-20)
+                line.setAttribute('x1', sourceNode.x + 40);
+                line.setAttribute('y1', sourceNode.y + 40);
+                line.setAttribute('x2', targetX);
+                line.setAttribute('y2', targetY);
+            }
+
+            cancelConnection() {
+                this.connectSourceId = null;
+                const line = document.getElementById('rubberband-line');
+                line.style.display = 'none';
+                line.classList.add('hidden');
+                this.renderNodes(); // Remove source highlight
+            }
+
+            completeConnection(targetId) {
+                const newLink = {
+                    id: 'link_' + Math.random().toString(36).substr(2, 9),
+                    sourceId: this.connectSourceId,
+                    targetId: targetId,
+                    name: '',
+                    type: 'Ethernet',
+                    ports: '',
+                    comment: ''
+                };
+                
+                this.state.links.push(newLink);
+                this.cancelConnection();
+                this.selectLink(newLink.id);
+                this.renderAll();
+            }
+
+            onLinkClick(event, id) {
+                event.stopPropagation();
+                if (this.connectSourceId) return; // Don't select link if trying to connect
+                this.selectLink(id);
+            }
+
+            // --- Selection & Properties ---
+            selectNode(id) {
+                this.selectedId = id;
+                this.selectedType = 'node';
+                this.updatePropertiesPanel();
+                this.renderNodes();
+                this.renderLinks();
+                this.renderLabels();
+            }
+
+            selectLink(id) {
+                this.selectedId = id;
+                this.selectedType = 'link';
+                this.updatePropertiesPanel();
+                this.renderNodes();
+                this.renderLinks();
+                this.renderLabels();
+            }
+
+            selectLabel(id) {
+                this.selectedId = id;
+                this.selectedType = 'label';
+                this.updatePropertiesPanel();
+                this.renderNodes();
+                this.renderLinks();
+                this.renderLabels();
+            }
+
+            updatePropertiesPanel() {
+                const emptyState = document.getElementById('prop-empty-state');
+                const nodeForm = document.getElementById('prop-node-form');
+                const linkForm = document.getElementById('prop-link-form');
+                const labelForm = document.getElementById('prop-label-form');
+                const badge = document.getElementById('prop-type-badge');
+
+                emptyState.classList.add('hidden');
+                nodeForm.classList.add('hidden');
+                linkForm.classList.add('hidden');
+                labelForm.classList.add('hidden');
+                badge.classList.add('hidden');
+
+                if (!this.selectedId) {
+                    emptyState.classList.remove('hidden');
+                    return;
+                }
+
+                if (this.selectedType === 'node') {
+                    const node = this.state.nodes.find(n => n.id === this.selectedId);
+                    if (!node) return;
+
+                    nodeForm.classList.remove('hidden');
+                    badge.classList.remove('hidden');
+                    badge.textContent = node.type.toUpperCase();
+
+                    document.getElementById('prop-node-name').value = node.name || '';
+                    document.getElementById('prop-node-ip').value = node.ip || '';
+                    document.getElementById('prop-node-zone').value = node.zone || '';
+                    document.getElementById('prop-node-comment').value = node.comment || '';
+                } 
+                else if (this.selectedType === 'link') {
+                    const link = this.state.links.find(l => l.id === this.selectedId);
+                    if (!link) return;
+
+                    linkForm.classList.remove('hidden');
+                    badge.classList.remove('hidden');
+                    badge.textContent = "CONNECTION";
+
+                    document.getElementById('prop-link-name').value = link.name || '';
+                    document.getElementById('prop-link-type').value = link.type || 'Ethernet';
+                    document.getElementById('prop-link-ports').value = link.ports || '';
+                    document.getElementById('prop-link-comment').value = link.comment || '';
+                }
+                else if (this.selectedType === 'label') {
+                    const label = this.state.labels.find(l => l.id === this.selectedId);
+                    if (!label) return;
+
+                    labelForm.classList.remove('hidden');
+                    badge.classList.remove('hidden');
+                    badge.textContent = "TEXT LABEL";
+
+                    document.getElementById('prop-label-text').value = label.text || '';
+                    document.getElementById('prop-label-size').value = label.fontSize || 'md';
+                    document.getElementById('prop-label-color').value = label.color || 'default';
+                }
+            }
+
+            updateSelectedNode() {
+                if (this.selectedType !== 'node') return;
+                const node = this.state.nodes.find(n => n.id === this.selectedId);
+                if (node) {
+                    node.name = document.getElementById('prop-node-name').value;
+                    node.ip = document.getElementById('prop-node-ip').value;
+                    node.zone = document.getElementById('prop-node-zone').value;
+                    node.comment = document.getElementById('prop-node-comment').value;
+                    this.renderNodes();
+                }
+            }
+
+            updateSelectedLink() {
+                if (this.selectedType !== 'link') return;
+                const link = this.state.links.find(l => l.id === this.selectedId);
+                if (link) {
+                    link.name = document.getElementById('prop-link-name').value;
+                    link.type = document.getElementById('prop-link-type').value;
+                    link.ports = document.getElementById('prop-link-ports').value;
+                    link.comment = document.getElementById('prop-link-comment').value;
+                    this.renderLinks();
+                }
+            }
+
+            updateSelectedLabel() {
+                if (this.selectedType !== 'label') return;
+                const label = this.state.labels.find(l => l.id === this.selectedId);
+                if (label) {
+                    label.text = document.getElementById('prop-label-text').value;
+                    label.fontSize = document.getElementById('prop-label-size').value;
+                    label.color = document.getElementById('prop-label-color').value;
+                    this.renderLabels();
+                }
+            }
+
+            deleteSelected() {
+                if (this.selectedType === 'node') {
+                    // Remove node
+                    this.state.nodes = this.state.nodes.filter(n => n.id !== this.selectedId);
+                    // Remove associated links
+                    this.state.links = this.state.links.filter(l => l.sourceId !== this.selectedId && l.targetId !== this.selectedId);
+                } else if (this.selectedType === 'link') {
+                    this.state.links = this.state.links.filter(l => l.id !== this.selectedId);
+                } else if (this.selectedType === 'label') {
+                    this.state.labels = this.state.labels.filter(l => l.id !== this.selectedId);
+                }
+                
+                this.selectedId = null;
+                this.selectedType = null;
+                this.updatePropertiesPanel();
+                this.renderAll();
+            }
+
+
+            // --- Rendering ---
+            renderAll() {
+                this.renderNodes();
+                this.renderLinks();
+                this.renderLabels();
+            }
+
+            renderLabels() {
+                const container = document.getElementById('html-labels');
+                container.innerHTML = '';
+
+                const sizeClasses = {
+                    'sm': 'text-xs',
+                    'md': 'text-sm',
+                    'lg': 'text-lg font-semibold',
+                    'xl': 'text-2xl font-bold'
+                };
+
+                const colorClasses = {
+                    'default': 'text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600 bg-white/90 dark:bg-gray-800/90',
+                    'blue': 'text-blue-700 dark:text-blue-300 border-blue-400 dark:border-blue-500 bg-blue-50/90 dark:bg-blue-900/40',
+                    'green': 'text-green-700 dark:text-green-300 border-green-400 dark:border-green-500 bg-green-50/90 dark:bg-green-900/40',
+                    'red': 'text-red-700 dark:text-red-300 border-red-400 dark:border-red-500 bg-red-50/90 dark:bg-red-900/40',
+                    'yellow': 'text-amber-800 dark:text-amber-300 border-amber-400 dark:border-amber-500 bg-amber-50/90 dark:bg-amber-900/40',
+                    'purple': 'text-purple-700 dark:text-purple-300 border-purple-400 dark:border-purple-500 bg-purple-50/90 dark:bg-purple-900/40',
+                    'gray': 'text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700 bg-gray-100/90 dark:bg-gray-800/60'
+                };
+
+                this.state.labels.forEach(label => {
+                    const isSelected = this.selectedId === label.id && this.selectedType === 'label';
+                    const sizeCls = sizeClasses[label.fontSize || 'md'] || sizeClasses['md'];
+                    const colorCls = colorClasses[label.color || 'default'] || colorClasses['default'];
+
+                    const el = document.createElement('div');
+                    el.className = `node-element px-3 py-1.5 rounded-md border backdrop-blur-sm pointer-events-auto shadow-sm whitespace-pre-wrap break-words max-w-xs ${sizeCls} ${colorCls} ${isSelected ? 'selected' : ''}`;
+                    el.style.left = `${label.x}px`;
+                    el.style.top = `${label.y}px`;
+
+                    el.onmousedown = (e) => this.onLabelMouseDown(e, label.id);
+                    el.onclick = (e) => this.onLabelClick(e, label.id);
+                    el.oncontextmenu = (e) => this.onLabelContextMenu(e, label.id);
+                    el.ondblclick = (e) => {
+                        e.stopPropagation();
+                        this.selectLabel(label.id);
+                        const textInput = document.getElementById('prop-label-text');
+                        if (textInput) {
+                            textInput.focus();
+                            textInput.select();
+                        }
+                    };
+
+                    el.textContent = label.text || 'Empty Label';
+
+                    container.appendChild(el);
+                });
+            }
+
+            renderNodes() {
+                const container = document.getElementById('html-nodes');
+                container.innerHTML = ''; // Clear
+
+                this.state.nodes.forEach(node => {
+                    const isSelected = this.selectedId === node.id;
+                    const isConnectingSource = this.connectSourceId === node.id;
+                    
+                    const el = document.createElement('div');
+                    el.className = `node-element flex flex-col items-center justify-center w-20 h-20 rounded-lg bg-white dark:bg-gray-800 border-2 pointer-events-auto shadow-sm 
+                        ${isSelected ? 'selected' : 'border-gray-300 dark:border-gray-600'}
+                        ${isConnectingSource ? 'animate-pulse ring-4 ring-yellow-400 border-yellow-500' : ''}`;
+                    
+                    el.style.left = `${node.x}px`;
+                    el.style.top = `${node.y}px`;
+                    
+                    // Events
+                    el.onmousedown = (e) => this.onNodeMouseDown(e, node.id);
+                    el.onclick = (e) => this.onNodeClick(e, node.id);
+                    el.oncontextmenu = (e) => this.onNodeContextMenu(e, node.id);
+
+                    const iconData = this.iconMap[node.type] || { icon: 'fa-box', color: 'text-gray-500' };
+                    
+                    el.innerHTML = `
+                        ${node.comment ? `<div class="absolute top-1 right-1 text-blue-500 text-[10px]" title="${node.comment.replace(/"/g, '&quot;')}"><i class="fas fa-comment-dots"></i></div>` : ''}
+                        <i class="fas ${iconData.icon} ${iconData.color} text-2xl mb-1 pointer-events-none"></i>
+                        <span class="node-label-text text-[10px] leading-snug font-medium w-full text-center truncate px-1 pb-0.5 pointer-events-none block">${node.name}</span>
+                        ${node.ip ? `<span class="node-label-text text-[9px] leading-snug text-gray-500 dark:text-gray-400 w-full text-center truncate px-1 pb-0.5 pointer-events-none block">${node.ip}</span>` : ''}
+                    `;
+                    
+                    container.appendChild(el);
+                });
+            }
+
+            renderLinks() {
+                const svg = document.getElementById('svg-connections');
+                svg.innerHTML = ''; // Clear
+
+                this.state.links.forEach(link => {
+                    const sourceNode = this.state.nodes.find(n => n.id === link.sourceId);
+                    const targetNode = this.state.nodes.find(n => n.id === link.targetId);
+
+                    if (sourceNode && targetNode) {
+                        const isSelected = this.selectedId === link.id;
+                        
+                        // Center of the 80x80 node
+                        const x1 = sourceNode.x + 40;
+                        const y1 = sourceNode.y + 40;
+                        const x2 = targetNode.x + 40;
+                        const y2 = targetNode.y + 40;
+
+                        // Styling based on connection type
+                        let strokeColor = '#9ca3af'; // gray-400
+                        let strokeDash = '';
+                        let strokeWidth = '2';
+
+                        if (link.type === 'Fiber') { strokeColor = '#f59e0b'; strokeWidth = '3'; } // amber
+                        if (link.type === 'Wireless') { strokeDash = '5,5'; strokeColor = '#3b82f6'; } // blue
+                        if (link.type === 'VPN') { strokeDash = '10,5'; strokeColor = '#10b981'; strokeWidth = '3'; } // green
+
+                        if (isSelected) {
+                            strokeColor = '#ef4444'; // red for selection
+                            strokeWidth = '4';
+                        }
+
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', x1);
+                        line.setAttribute('y1', y1);
+                        line.setAttribute('x2', x2);
+                        line.setAttribute('y2', y2);
+                        line.setAttribute('stroke', strokeColor);
+                        line.setAttribute('stroke-width', strokeWidth);
+                        if (strokeDash) line.setAttribute('stroke-dasharray', strokeDash);
+                        
+                        // Invisible thicker line for easier clicking
+                        const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        hitArea.setAttribute('x1', x1);
+                        hitArea.setAttribute('y1', y1);
+                        hitArea.setAttribute('x2', x2);
+                        hitArea.setAttribute('y2', y2);
+                        hitArea.setAttribute('stroke', 'transparent');
+                        hitArea.setAttribute('stroke-width', '15');
+                        hitArea.style.cursor = 'pointer';
+                        hitArea.style.pointerEvents = 'stroke'; // Make SVG line clickable
+                        
+                        hitArea.onclick = (e) => this.onLinkClick(e, link.id);
+
+                        svg.appendChild(line);
+                        svg.appendChild(hitArea);
+
+                        // Render label or comment indicator at midpoint of link
+                        if ((link.name && link.name.trim() !== '') || (link.comment && link.comment.trim() !== '')) {
+                            const midX = (x1 + x2) / 2;
+                            const midY = (y1 + y2) / 2;
+
+                            const labelText = link.name ? link.name.trim() : '';
+                            const hasComment = link.comment && link.comment.trim() !== '';
+                            const displayStr = labelText + (hasComment ? (labelText ? ' 💬' : '💬') : '');
+
+                            const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            textEl.setAttribute('x', midX);
+                            textEl.setAttribute('y', midY - 8);
+                            textEl.setAttribute('text-anchor', 'middle');
+                            textEl.setAttribute('fill', isSelected ? '#ef4444' : 'var(--text-main)');
+                            textEl.setAttribute('font-size', '11px');
+                            textEl.setAttribute('font-weight', '600');
+                            textEl.style.pointerEvents = 'none';
+                            textEl.style.userSelect = 'none';
+                            // Subtle halo for readability against background dots and lines
+                            textEl.style.paintOrder = 'stroke';
+                            textEl.style.stroke = 'var(--panel-bg)';
+                            textEl.style.strokeWidth = '4px';
+                            textEl.style.strokeLinecap = 'round';
+                            textEl.style.strokeLinejoin = 'round';
+                            textEl.textContent = displayStr;
+
+                            svg.appendChild(textEl);
+                        }
+                    }
+                });
+            }
+
+            // --- Save Modal & Markdown Export/Import ---
+            updateDiagramName(newName) {
+                const trimmed = newName.trim() || "Untitled Network";
+                this.state.metadata.diagram_name = trimmed;
+                document.getElementById('header-diagram-name').value = trimmed;
+            }
+
+            openSaveModal() {
+                const modal = document.getElementById('save-modal');
+                const fileInput = document.getElementById('save-filename-input');
+                const descInput = document.getElementById('save-description-input');
+                
+                fileInput.value = this.state.metadata.diagram_name || 'Untitled Network';
+                descInput.value = this.state.metadata.description || '';
+                
+                modal.classList.remove('hidden');
+                setTimeout(() => {
+                    fileInput.focus();
+                    fileInput.select();
+                }, 50);
+            }
+
+            closeSaveModal() {
+                document.getElementById('save-modal').classList.add('hidden');
+            }
+
+            confirmSaveMarkdown() {
+                const rawName = document.getElementById('save-filename-input').value.trim();
+                const description = document.getElementById('save-description-input').value.trim();
+                
+                const diagramName = rawName || "Untitled Network";
+                this.state.metadata.diagram_name = diagramName;
+                this.state.metadata.description = description;
+                
+                // Sync with header input
+                document.getElementById('header-diagram-name').value = diagramName;
+                
+                this.closeSaveModal();
+                this.exportMarkdown(diagramName);
+            }
+
+            confirmSaveImage() {
+                const rawName = document.getElementById('save-filename-input').value.trim();
+                const description = document.getElementById('save-description-input').value.trim();
+                
+                const diagramName = rawName || "Untitled Network";
+                this.state.metadata.diagram_name = diagramName;
+                this.state.metadata.description = description;
+                
+                document.getElementById('header-diagram-name').value = diagramName;
+                
+                this.closeSaveModal();
+                this.exportImage(diagramName);
+            }
+
+            showToast(message, iconClass = 'fa-info-circle text-blue-400 dark:text-blue-600') {
+                const toast = document.getElementById('toast-notification');
+                const icon = document.getElementById('toast-icon');
+                const msg = document.getElementById('toast-message');
+                if (!toast || !icon || !msg) return;
+
+                icon.className = `fas ${iconClass}`;
+                msg.textContent = message;
+
+                toast.classList.remove('translate-y-16', 'opacity-0');
+                clearTimeout(this.toastTimeout);
+                this.toastTimeout = setTimeout(() => {
+                    toast.classList.add('translate-y-16', 'opacity-0');
+                }, 3000);
+            }
+
+            async exportImage(customFileName) {
+                if (this.state.nodes.length === 0 && this.state.labels.length === 0) {
+                    this.showToast("Canvas is empty! Add some devices or labels first.", "fa-exclamation-triangle text-amber-400 dark:text-amber-600");
+                    return;
+                }
+
+                const nameToUse = customFileName || this.state.metadata.diagram_name || "Untitled_Network";
+                const cleanFileName = nameToUse.replace(/\.(md|png)$/i, '').replace(/[\\/:*?"<>|]/g, '_');
+
+                // Temporarily clear selection and rubberband so the exported image is clean
+                const prevSelectedId = this.selectedId;
+                const prevSelectedType = this.selectedType;
+                this.selectedId = null;
+                this.selectedType = null;
+                this.cancelConnection();
+                this.renderAll();
+
+                // Calculate bounding box of all elements to auto-crop
+                let minX = Infinity, minY = Infinity;
+                let maxX = -Infinity, maxY = -Infinity;
+
+                this.state.nodes.forEach(n => {
+                    if (n.x < minX) minX = n.x;
+                    if (n.y < minY) minY = n.y;
+                    if (n.x + 80 > maxX) maxX = n.x + 80;
+                    if (n.y + 80 > maxY) maxY = n.y + 80;
+                });
+
+                const labelContainer = document.getElementById('html-labels');
+                Array.from(labelContainer.children).forEach((el, idx) => {
+                    const lbl = this.state.labels[idx];
+                    if (lbl) {
+                        const w = el.offsetWidth || 120;
+                        const h = el.offsetHeight || 40;
+                        if (lbl.x < minX) minX = lbl.x;
+                        if (lbl.y < minY) minY = lbl.y;
+                        if (lbl.x + w > maxX) maxX = lbl.x + w;
+                        if (lbl.y + h > maxY) maxY = lbl.y + h;
+                    }
+                });
+
+                // Add padding around the diagram
+                const padding = 60;
+                minX = Math.max(0, Math.floor(minX - padding));
+                minY = Math.max(0, Math.floor(minY - padding));
+                maxX = Math.min(3000, Math.ceil(maxX + padding));
+                maxY = Math.min(3000, Math.ceil(maxY + padding));
+
+                const cropWidth = Math.max(300, maxX - minX);
+                const cropHeight = Math.max(200, maxY - minY);
+
+                const btn = document.getElementById('btn-export-image');
+                const originalBtnHtml = btn ? btn.innerHTML : '';
+                if (btn) {
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin w-5 text-center text-purple-600 dark:text-purple-400"></i>';
+                    btn.disabled = true;
+                }
+
+                this.showToast("Generating PNG image...", "fa-spinner fa-spin text-purple-400 dark:text-purple-600");
+
+                try {
+                    const isDark = document.documentElement.classList.contains('dark');
+                    const bgColor = isDark ? '#111827' : '#f3f4f6';
+                    const targetEl = document.getElementById('view-canvas');
+
+                    // Allow DOM to repaint without selection outlines
+                    await new Promise(r => setTimeout(r, 50));
+
+                    const canvas = await html2canvas(targetEl, {
+                        backgroundColor: bgColor,
+                        x: minX,
+                        y: minY,
+                        width: cropWidth,
+                        height: cropHeight,
+                        scale: 2, // High-DPI 2x resolution
+                        useCORS: true,
+                        logging: false,
+                        onclone: (clonedDoc) => {
+                            // Fix html2canvas vertical text clipping caused by overflow:hidden on truncate classes
+                            const labels = clonedDoc.querySelectorAll('.node-label-text');
+                            labels.forEach(lbl => {
+                                lbl.style.overflow = 'visible';
+                                lbl.style.textOverflow = 'clip';
+                                lbl.style.lineHeight = '1.4';
+                                lbl.style.paddingBottom = '2px';
+                            });
+                            const nodes = clonedDoc.querySelectorAll('#html-nodes .node-element');
+                            nodes.forEach(node => {
+                                node.style.overflow = 'visible';
+                                node.style.height = 'auto';
+                                node.style.minHeight = '5rem';
+                                node.style.paddingBottom = '4px';
+                            });
+                        }
+                    });
+
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${cleanFileName}.png`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            this.showToast("Saved image successfully!", "fa-check-circle text-green-400 dark:text-green-600");
+                        }
+                    }, 'image/png');
+
+                } catch (err) {
+                    console.error("Failed to export image:", err);
+                    this.showToast("Failed to export image.", "fa-times-circle text-red-400 dark:text-red-600");
+                } finally {
+                    // Restore previous selection state
+                    this.selectedId = prevSelectedId;
+                    this.selectedType = prevSelectedType;
+                    this.updatePropertiesPanel();
+                    this.renderAll();
+                    if (btn) {
+                        btn.innerHTML = originalBtnHtml;
+                        btn.disabled = false;
+                    }
+                }
+            }
+
+            exportMarkdown(customFileName) {
+                const nameToUse = customFileName || this.state.metadata.diagram_name || "Untitled_Network";
+                // Ensure valid filename without double .md extension
+                const cleanFileName = nameToUse.replace(/\.md$/i, '').replace(/[\\/:*?"<>|]/g, '_');
+
+                const sanitizeMd = (str) => {
+                    if (!str) return '-';
+                    return str.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim() || '-';
+                };
+
+                let md = `---
+diagram_name: "${this.state.metadata.diagram_name}"
+version: "${this.state.metadata.version}"
+last_updated: "${new Date().toISOString().split('T')[0]}"
+description: "${this.state.metadata.description}"
+---
+
+## 1. Network Nodes (Devices)
+| ID | Name | Type | IP Address | Zone / Subnet | Comment | PosX | PosY |
+|---|---|---|---|---|---|---|---|
+`;
+                this.state.nodes.forEach(n => {
+                    md += `| ${n.id} | ${sanitizeMd(n.name)} | ${n.type} | ${sanitizeMd(n.ip)} | ${sanitizeMd(n.zone)} | ${sanitizeMd(n.comment)} | ${Math.round(n.x)} | ${Math.round(n.y)} |\n`;
+                });
+
+                md += `\n## 2. Connections (Links)\n| ID | Name | Source | Target | Connection Type | Port Info | Comment |\n|---|---|---|---|---|---|---|\n`;
+                
+                this.state.links.forEach(l => {
+                    const sourceName = this.state.nodes.find(n => n.id === l.sourceId)?.name || l.sourceId;
+                    const targetName = this.state.nodes.find(n => n.id === l.targetId)?.name || l.targetId;
+                    md += `| ${l.id} | ${sanitizeMd(l.name)} | ${ sanitizeMd(sourceName)} (${l.sourceId}) | ${sanitizeMd(targetName)} (${l.targetId}) | ${l.type} | ${sanitizeMd(l.ports)} | ${sanitizeMd(l.comment)} |\n`;
+                });
+
+                md += `\n## 3. Text Labels (Annotations)\n| ID | Text | Font Size | Color | PosX | PosY |\n|---|---|---|---|---|---|\n`;
+                this.state.labels.forEach(lbl => {
+                    const sanitizedText = lbl.text ? lbl.text.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>').trim() : '-';
+                    md += `| ${lbl.id} | ${sanitizedText} | ${lbl.fontSize || 'md'} | ${lbl.color || 'default'} | ${Math.round(lbl.x)} | ${Math.round(lbl.y)} |\n`;
+                });
+
+                md += `\n## 4. Notes\n- ${this.state.metadata.description || 'Generated by NetDiagram Studio SPA'}\n`;
+
+                // Create download link
+                const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${cleanFileName}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+
+            importMarkdown(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const content = e.target.result;
+                    this.parseMarkdown(content, file.name);
+                };
+                reader.readAsText(file);
+                event.target.value = ''; // Reset input
+            }
+
+            parseMarkdown(mdString, fallbackFilename = "") {
+                try {
+                    const lines = mdString.split('\n');
+                    let parseState = 'none'; // 'frontmatter', 'nodes', 'links', 'labels'
+                    
+                    const newNodes = [];
+                    const newLinks = [];
+                    const newLabels = [];
+                    
+                    if (fallbackFilename) {
+                        const baseName = fallbackFilename.replace(/\.md$/i, '');
+                        this.state.metadata.diagram_name = baseName;
+                    }
+
+                    lines.forEach(line => {
+                        const tLine = line.trim();
+                        if (tLine === '---' && parseState === 'none') { parseState = 'frontmatter'; return; }
+                        if (tLine === '---' && parseState === 'frontmatter') { parseState = 'body'; return; }
+                        
+                        if (parseState === 'frontmatter') {
+                            const nameMatch = tLine.match(/^diagram_name:\s*"(.*)"$/);
+                            if (nameMatch) this.state.metadata.diagram_name = nameMatch[1];
+                            
+                            const descMatch = tLine.match(/^description:\s*"(.*)"$/);
+                            if (descMatch) this.state.metadata.description = descMatch[1];
+                            return;
+                        }
+
+                        if (tLine.startsWith('## 1. Network Nodes')) { parseState = 'nodes'; return; }
+                        if (tLine.startsWith('## 2. Connections')) { parseState = 'links'; return; }
+                        if (tLine.startsWith('## 3. Text Labels')) { parseState = 'labels'; return; }
+                        if (tLine.startsWith('## 3. Notes') || tLine.startsWith('## 4. Notes')) { parseState = 'notes'; return; }
+                        
+                        // Parse Nodes Table
+                        if (parseState === 'nodes' && tLine.startsWith('|') && !tLine.includes('---|')) {
+                            const cols = tLine.split('|').map(c => c.trim()).filter(c => c !== '');
+                            if (cols[0] !== 'ID') {
+                                if (cols.length >= 8) {
+                                    // Format with Comment column
+                                    newNodes.push({
+                                        id: cols[0],
+                                        name: cols[1],
+                                        type: cols[2],
+                                        ip: cols[3] === '-' ? '' : cols[3],
+                                        zone: cols[4] === '-' ? '' : cols[4],
+                                        comment: cols[5] === '-' ? '' : cols[5],
+                                        x: parseInt(cols[6]) || 0,
+                                        y: parseInt(cols[7]) || 0
+                                    });
+                                } else if (cols.length >= 7) {
+                                    // Backward compatibility for older 7-column markdown files
+                                    newNodes.push({
+                                        id: cols[0],
+                                        name: cols[1],
+                                        type: cols[2],
+                                        ip: cols[3] === '-' ? '' : cols[3],
+                                        zone: cols[4] === '-' ? '' : cols[4],
+                                        comment: '',
+                                        x: parseInt(cols[5]) || 0,
+                                        y: parseInt(cols[6]) || 0
+                                    });
+                                }
+                            }
+                        }
+
+                        // Parse Links Table
+                        if (parseState === 'links' && tLine.startsWith('|') && !tLine.includes('---|')) {
+                            const cols = tLine.split('|').map(c => c.trim()).filter(c => c !== '');
+                            if (cols[0] !== 'ID') {
+                                if (cols.length >= 7) {
+                                    // Format with Name and Comment columns
+                                    const sourceMatch = cols[2].match(/\((.*?)\)/);
+                                    const targetMatch = cols[3].match(/\((.*?)\)/);
+                                    newLinks.push({
+                                        id: cols[0],
+                                        name: cols[1] === '-' ? '' : cols[1],
+                                        sourceId: sourceMatch ? sourceMatch[1] : cols[2],
+                                        targetId: targetMatch ? targetMatch[1] : cols[3],
+                                        type: cols[4],
+                                        ports: cols[5] === '-' ? '' : cols[5],
+                                        comment: cols[6] === '-' ? '' : cols[6]
+                                    });
+                                } else if (cols.length >= 5) {
+                                    // Backward compatibility for older 5-column markdown files
+                                    const sourceMatch = cols[1].match(/\((.*?)\)/);
+                                    const targetMatch = cols[2].match(/\((.*?)\)/);
+                                    newLinks.push({
+                                        id: cols[0],
+                                        name: '',
+                                        sourceId: sourceMatch ? sourceMatch[1] : cols[1],
+                                        targetId: targetMatch ? targetMatch[1] : cols[2],
+                                        type: cols[3],
+                                        ports: cols[4] === '-' ? '' : cols[4],
+                                        comment: ''
+                                    });
+                                }
+                            }
+                        }
+
+                        // Parse Labels Table
+                        if (parseState === 'labels' && tLine.startsWith('|') && !tLine.includes('---|')) {
+                            const cols = tLine.split('|').map(c => c.trim()).filter(c => c !== '');
+                            if (cols[0] !== 'ID' && cols.length >= 6) {
+                                newLabels.push({
+                                    id: cols[0],
+                                    text: cols[1] === '-' ? '' : cols[1].replace(/<br>/g, '\n'),
+                                    fontSize: cols[2] || 'md',
+                                    color: cols[3] || 'default',
+                                    x: parseInt(cols[4]) || 0,
+                                    y: parseInt(cols[5]) || 0
+                                });
+                            }
+                        }
+                    });
+
+                    this.state.nodes = newNodes;
+                    this.state.links = newLinks;
+                    this.state.labels = newLabels;
+                    this.selectedId = null;
+                    this.selectedType = null;
+                    
+                    document.getElementById('header-diagram-name').value = this.state.metadata.diagram_name;
+                    this.updatePropertiesPanel();
+                    this.renderAll();
+                    this.centerView();
+                    
+                    console.log("Imported successfully!", this.state);
+
+                } catch (error) {
+                    console.error("Failed to parse markdown", error);
+                }
+            }
+        }
+
+        // --- Bootstrap the Application ---
+        const app = new NetworkDiagramApp();
+        window.app = app;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            app.init();
+        });
+    </script>
+</body>
+</html>
